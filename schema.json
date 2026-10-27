@@ -1,0 +1,160 @@
+{
+  "basic": {
+    "type": "section",
+    "name": "基础",
+    "collapsed": false,
+    "fields": {
+      "enabled": {
+        "type": "switch",
+        "name": "启用插件",
+        "default": true,
+        "hint": "关闭后 <fish> 标签不再转语音，直接发文字。默认：开。"
+      },
+      "max_chars": {
+        "type": "integer",
+        "name": "转语音文字上限",
+        "default": 80,
+        "hint": "标签里的文字超过这个字数就不转语音、直接发文字，避免一口气念一大段。可填 1~500，默认 80；填 0 或负数会被自动改成 1。"
+      },
+      "timeout": {
+        "type": "integer",
+        "name": "请求超时（秒）",
+        "default": 30,
+        "hint": "每次合成语音最多等多少秒，超时就放弃、发文字。可填 1~300，默认 30；填 0 会被自动改成 1。"
+      },
+      "format": {
+        "type": "string",
+        "name": "音频格式",
+        "default": "mp3",
+        "options": ["mp3", "wav", "opus"],
+        "hint": "合成出的音频格式。默认 mp3（体积小、兼容性好）；wav 音质无损但文件大；opus 更省流量。填别的值会自动用回 mp3。"
+      }
+    }
+  },
+  "fish": {
+    "type": "section",
+    "name": "Fish Audio 服务",
+    "collapsed": false,
+    "fields": {
+      "api_key": {
+        "type": "sensitive",
+        "name": "API Key",
+        "default": "",
+        "hint": "在 https://fish.audio 个人中心申请的 API Key，必填，否则 <fish> 标签只会发文字。Key 填错会收到 401 报错、合成失败。"
+      },
+      "api_base": {
+        "type": "string",
+        "name": "接口地址",
+        "default": "https://api.fish.audio",
+        "hint": "一般不用改。用官方服务保持默认；自建代理填你的网关地址，例如 https://tts.example.com（结尾不用带 /v1/tts，插件会自动补）。填错会连不上服务、合成失败。"
+      },
+      "model": {
+        "type": "string",
+        "name": "合成模型",
+        "default": "s2.1-pro",
+        "options": ["s2.1-pro", "s2-pro", "s2.1-pro-free", "drama-3"],
+        "hint": "s2.1-pro：效果最好的付费模型；s2.1-pro-free：免费但速度慢、不保证质量；drama-3：更适合角色扮演。填别的值会自动用回 s2.1-pro。"
+      },
+      "reference_id": {
+        "type": "string",
+        "name": "兜底音色 ID",
+        "default": "",
+        "hint": "音色库里没有设默认音色时，用它来合成。格式是音色页面地址末尾那串 32 位字母数字，例如 ca3007f96ae7499ab87d27ea3599956a，也可以直接贴整个音色页面地址。留空则用 Fish 官方默认音色。填错会导致合成失败。"
+      }
+    }
+  },
+  "emotion": {
+    "type": "section",
+    "name": "情绪语气",
+    "collapsed": false,
+    "fields": {
+      "enabled": {
+        "type": "switch",
+        "name": "识别情绪标记",
+        "default": true,
+        "hint": "开启后，文本里的 [happy]、[whispering] 这类方括号标记会原样发给 Fish，让它只改变语气、不会把标记念出来。关闭后标记会当普通文字念。默认：开。"
+      },
+      "tag_mode": {
+        "type": "string",
+        "name": "标记范围",
+        "default": "any",
+        "options": ["any", "whitelist"],
+        "hint": "any：任何方括号内容都当情绪标记；whitelist：只认 Fish 官方情绪清单加你下面自定义的标记。默认 any。"
+      },
+      "extra_tags": {
+        "type": "text",
+        "name": "自定义标记（白名单模式用）",
+        "default": "",
+        "hint": "whitelist 模式下额外允许的情绪标记，用逗号分隔，例如：slightly happy, very angry。留空表示不加。"
+      },
+      "max_tags": {
+        "type": "integer",
+        "name": "最多保留标记数",
+        "default": 6,
+        "hint": "一句话里最多保留几个情绪标记，超出的一律丢掉。可填 0~20，默认 6；填 0 表示不保留任何标记。"
+      },
+      "strip_in_text": {
+        "type": "switch",
+        "name": "发文字时剥离标记",
+        "default": false,
+        "hint": "当内容因为太长或合成失败降级发文字时，是否把 [happy] 这类标记从文字里去掉。默认：不去。"
+      }
+    }
+  },
+  "advanced": {
+    "type": "section",
+    "name": "高级",
+    "collapsed": true,
+    "fields": {
+      "speed": {
+        "type": "float",
+        "name": "语速",
+        "default": 1.0,
+        "hint": "0.5~2.0，1.0 是正常语速，小于 1 变慢、大于 1 变快。默认 1.0；填超出范围的数会被自动收进范围。"
+      },
+      "volume": {
+        "type": "float",
+        "name": "音量（分贝）",
+        "default": 0.0,
+        "hint": "相对音量的增减，单位分贝，可填 -24~24，默认 0（不调整）。"
+      },
+      "temperature": {
+        "type": "float",
+        "name": "随机性 temperature",
+        "default": 0.0,
+        "hint": "0~1，越大语气越随意。默认 0（保持稳定，且不发送这个参数给 Fish）。"
+      },
+      "top_p": {
+        "type": "float",
+        "name": "采样 top_p",
+        "default": 0.0,
+        "hint": "0~1，一般不用动。默认 0（不发送这个参数给 Fish）。"
+      },
+      "latency": {
+        "type": "string",
+        "name": "延迟档位",
+        "default": "normal",
+        "options": ["normal", "balanced", "low"],
+        "hint": "normal 最稳；balanced 首段语音更快；low 最快但可能降低音质。默认 normal。"
+      },
+      "normalize": {
+        "type": "switch",
+        "name": "数字日期口语化",
+        "default": true,
+        "hint": "开启后 Fish 会把 2024、1234 这类数字按口语念出来。默认：开。"
+      },
+      "retries": {
+        "type": "integer",
+        "name": "失败重试次数",
+        "default": 1,
+        "hint": "合成失败（网络波动、服务端 5xx）时最多重试几次。可填 0~3，默认 1；填 0 表示失败就放弃、直接发文字。"
+      },
+      "extra_body": {
+        "type": "json",
+        "name": "附加请求字段（高级）",
+        "default": {},
+        "hint": "以 JSON 形式附加到合成请求里的额外字段，例如 {\"mp3_bitrate\": 128}。一般不用填；填错格式会导致请求失败。"
+      }
+    }
+  }
+}

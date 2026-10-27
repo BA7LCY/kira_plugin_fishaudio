@@ -1,0 +1,14 @@
+# 内部留档与部署文件不进公开仓库（见项目约定）
+docs/
+scripts/
+AGENTS.md
+.deploy.local.md
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# 运行时
+.tts_cache/

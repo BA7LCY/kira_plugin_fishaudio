@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fish 音色库</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <h1>Fish 音色库</h1>
+      <button id="btn-refresh" class="btn btn-ghost" type="button">刷新</button>
+    </header>
+
+    <p id="status" class="status" hidden></p>
+
+    <!-- 音色列表 -->
+    <section class="card">
+      <h2>音色列表</h2>
+      <div class="table-wrap">
+        <table id="voice-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>名称</th>
+              <th>音色 ID</th>
+              <th>备注</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="voice-rows"></tbody>
+        </table>
+      </div>
+      <p id="empty-tip" class="empty" hidden>音色库还是空的，去下面添加一个吧。</p>
+      <p class="muted" id="table-foot"></p>
+    </section>
+
+    <!-- 添加音色 -->
+    <section class="card">
+      <h2>添加音色</h2>
+      <form id="add-form" class="form-row">
+        <input id="add-name" type="text" maxlength="24" placeholder="名称（自己起，好认就行）" required>
+        <input id="add-id" type="text" placeholder="音色 ID 或音色页面地址" required>
+        <input id="add-note" type="text" maxlength="60" placeholder="备注（可选）">
+        <button class="btn btn-primary" type="submit">保存</button>
+      </form>
+      <p class="muted">提示：音色 ID 是音色页面地址末尾那串 32 位字母数字，也可以直接整条地址粘贴进来。最多存 50 个。</p>
+    </section>
+
+    <!-- 试听 -->
+    <section class="card">
+      <h2>试听</h2>
+      <div class="form-row form-row-top">
+        <textarea id="test-text" rows="2" placeholder="输入要试听的文字，例如：你好，这是一条试听语音。"></textarea>
+        <select id="test-voice" title="选择试听用的音色"></select>
+        <button id="btn-test" class="btn btn-primary" type="button">合成试听</button>
+      </div>
+      <p class="muted">试听固定用 mp3 格式，不会占用对话额度以外的资源。一次只允许一个试听请求。</p>
+      <div id="test-result" hidden>
+        <audio id="test-audio" controls></audio>
+        <p id="test-meta" class="muted"></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
