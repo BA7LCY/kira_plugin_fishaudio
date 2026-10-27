@@ -1,0 +1,269 @@
+# -*- coding: utf-8 -*-
+"""main.py 集成测试（框架 core 桩 + 假 TTS）。
+
+覆盖：
+  - <fish> 标签：开关 / 上限降级 / 情绪归一化 / 音色解析 / 失败降级
+  - 音色库 API：列表 / 保存 / 设默认 / 删除 / 清空默认
+  - 试听 API：正常返回 base64 / 未配 Key / 超上限
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from . import loader, stub_core, tmpdir
+
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+
+# 先装框架桩再导入 main
+stub_core.install()
+stub_core.install_fastapi()
+MAIN = loader.import_main(PLUGIN_ROOT)
+
+FishAudioPlugin = MAIN.FishAudioPlugin
+FishError = MAIN.FishError
+HTTPException = stub_core.install_fastapi().__class__ if False else None
+
+
+class FakeTTS:
+    """记录调用、返回假音频文件的 TTS。"""
+
+    def __init__(self, out_dir: Path, fail: bool = False):
+        self.out_dir = Path(out_dir)
+        self.calls: list = []
+        self.fail = fail
+
+    async def synthesize(self, text: str, cfg):
+        self.calls.append((text, cfg))
+        if self.fail:
+            raise FishError("模拟合成失败", status=500, retryable=True)
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        p = self.out_dir / f"fake_{len(self.calls)}.mp3"
+        p.write_bytes(b"FAKEAUDIO")
+        return p
+
+
+def _get_fastapi():
+    import sys
+    return sys.modules["fastapi"]
+
+
+def _make_plugin(data_dir: Path, cfg: dict, *, with_tts: bool = True, tts_fail: bool = False):
+    """构造并初始化插件实例，默认注入假 TTS。"""
+    ctx = stub_core.FakeCtx(data_dir)
+    plugin = FishAudioPlugin(ctx, cfg)
+    return plugin
+
+
+async def _init(plugin, out_dir=None, tts_fail=False):
+    await plugin.initialize()
+    if out_dir is not None:
+        plugin.tts = FakeTTS(out_dir, fail=tts_fail)
+    return plugin
+
+
+def _base_cfg(**overrides):
+    cfg = {
+        "basic": {"enabled": True, "max_chars": 80, "timeout": 30, "format": "mp3"},
+        "fish": {"api_key": "test-key", "api_base": "https://api.fish.audio", "model": "s2.1-pro", "reference_id": ""},
+        "emotion": {"enabled": True, "tag_mode": "any", "extra_tags": "", "max_tags": 6, "strip_in_text": True},
+        "advanced": {"speed": 1.0, "volume": 0.0, "temperature": 0.0, "top_p": 0.0, "latency": "normal", "normalize": True, "retries": 1, "extra_body": {}},
+    }
+    # 逐层覆盖
+    for k, v in overrides.items():
+        if isinstance(v, dict) and k in cfg:
+            cfg[k].update(v)
+        else:
+            cfg[k] = v
+    return cfg
+
+
+async def test_fish_tag_returns_record():
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        plugin = _make_plugin(d, _base_cfg())
+        await _init(plugin, out_dir=d / "cache")
+        res = await plugin.fish("你好呀")
+        assert len(res) == 1 and res[0].__class__.__name__ == "Record"
+        text, cfg = plugin.tts.calls[0]
+        assert text == "你好呀"
+        assert cfg.api_key == "test-key"
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
+async def test_fish_tag_disabled_returns_text():
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        plugin = _make_plugin(d, _base_cfg(**{"basic": {"enabled": False}}))
+        await _init(plugin, out_dir=d / "cache")
+        res = await plugin.fish("你好")
+        assert res[0].__class__.__name__ == "Text"
+        assert res[0].text == "你好"
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
+async def test_fish_tag_over_max_chars_degrades_to_text():
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        plugin = _make_plugin(d, _base_cfg(**{"basic": {"max_chars": 5}}))
+        await _init(plugin, out_dir=d / "cache")
+        res = await plugin.fish("这段文字超过五个字了吧")
+        assert res[0].__class__.__name__ == "Text"
+        assert plugin.tts.calls == []  # 没调合成
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
+async def test_fish_tag_emotion_normalized_for_tts():
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        plugin = _make_plugin(d, _base_cfg())
+        await _init(plugin, out_dir=d / "cache")
+        res = await plugin.fish("[happy]哈哈")
+        assert res[0].__class__.__name__ == "Record"
+        text, _ = plugin.tts.calls[0]
+        # 情绪标记保留给 S2（只控制语气、不念出）
+        assert text == "[happy]哈哈"
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
+async def test_fish_tag_voice_attr_priority():
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        plugin = _make_plugin(d, _base_cfg(**{"fish": {"reference_id": "ca3007f96ae7499ab87d27ea3599956a"}}))
+        await _init(plugin, out_dir=d / "cache")
+        # 库里设了默认音色
+        plugin.voice_lib.add("默认", "9a9cf47702da476aa4629e2506d4a857")
+        plugin.voice_lib.use("默认")
+        # 1) voice 属性是合法 ID → 优先用它
+        await plugin.fish("hi", voice="bf322df2096a46f18c579d0baa36f41d")
+        assert plugin.tts.calls[-1][1].reference_id == "bf322df2096a46f18c579d0baa36f41d"
+        # 2) voice 属性是库内名称 → 解析成它的 ID
+        await plugin.fish("hi", voice="默认")
+        assert plugin.tts.calls[-1][1].reference_id == "9a9cf47702da476aa4629e2506d4a857"
+        # 3) 没给 voice → 库默认
+        await plugin.fish("hi")
+        assert plugin.tts.calls[-1][1].reference_id == "9a9cf47702da476aa4629e2506d4a857"
+        # 4) voice 属性无法识别 → 兜底回库默认
+        await plugin.fish("hi", voice="不存在的东西")
+        assert plugin.tts.calls[-1][1].reference_id == "9a9cf47702da476aa4629e2506d4a857"
+        # 5) 清掉库默认 → 用配置兜底
+        plugin.voice_lib.clear_active()
+        await plugin.fish("hi")
+        assert plugin.tts.calls[-1][1].reference_id == "ca3007f96ae7499ab87d27ea3599956a"
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
+async def test_fish_tag_failure_degrades_to_text():
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        plugin = _make_plugin(d, _base_cfg())
+        await _init(plugin, out_dir=d / "cache", tts_fail=True)
+        res = await plugin.fish("你好")
+        assert res[0].__class__.__name__ == "Text"
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
+async def test_voice_api_roundtrip():
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        plugin = _make_plugin(d, _base_cfg())
+        await _init(plugin, out_dir=d / "cache")
+
+        # 列表初始为空
+        payload = await plugin.api_list_voices()
+        assert payload["count"] == 0 and payload["active"] == ""
+
+        # 保存一个音色
+        body = MAIN.VoiceSaveBody(name="小明", id="ca3007f96ae7499ab87d27ea3599956a", note="测试音色")
+        payload = await plugin.api_save_voice(body)
+        assert payload["count"] == 1
+        assert payload["voices"][0]["name"] == "小明"
+
+        # 重复保存（覆盖）
+        body2 = MAIN.VoiceSaveBody(name="小明", id="9a9cf47702da476aa4629e2506d4a857")
+        payload = await plugin.api_save_voice(body2)
+        assert payload["count"] == 1
+
+        # 设为默认
+        payload = await plugin.api_use_voice(MAIN.VoiceKeyBody(key="小明"))
+        assert payload["active"] == "小明"
+
+        # 非法名称 → HTTPException 400
+        fastapi = _get_fastapi()
+        try:
+            await plugin.api_save_voice(MAIN.VoiceSaveBody(name="bad name!", id="ca3007f96ae7499ab87d27ea3599956a"))
+            assert False, "应当抛 HTTPException"
+        except fastapi.HTTPException as e:
+            assert e.status_code == 400
+
+        # 不存在的 key → 400
+        try:
+            await plugin.api_use_voice(MAIN.VoiceKeyBody(key="不存在的"))
+            assert False
+        except fastapi.HTTPException as e:
+            assert e.status_code == 400
+
+        # 删除
+        payload = await plugin.api_remove_voice(MAIN.VoiceKeyBody(key="小明"))
+        assert payload["count"] == 0 and payload["active"] == ""
+
+        # 清空默认（没有默认时也不报错）
+        payload = await plugin.api_clear_voice()
+        assert payload["active"] == ""
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
+async def test_tts_test_api():
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        plugin = _make_plugin(d, _base_cfg())
+        await _init(plugin, out_dir=d / "cache")
+
+        # 正常试听
+        body = MAIN.TtsTestBody(text="你好", reference_id="ca3007f96ae7499ab87d27ea3599956a")
+        result = await plugin.api_tts_test(body)
+        assert result["audio"]
+        assert result["mime"] == "audio/mpeg"
+        assert result["length"] > 0
+        import base64
+        assert base64.b64decode(result["audio"]) == b"FAKEAUDIO"
+
+        # 未配 Key → 400
+        plugin2 = _make_plugin(d / "other", _base_cfg(**{"fish": {"api_key": ""}}))
+        await _init(plugin2, out_dir=d / "cache2")
+        fastapi = _get_fastapi()
+        try:
+            await plugin2.api_tts_test(MAIN.TtsTestBody())
+            assert False
+        except fastapi.HTTPException as e:
+            assert e.status_code == 400
+            assert "API Key" in e.detail
+
+        # 超上限 → 400
+        try:
+            await plugin.api_tts_test(MAIN.TtsTestBody(text="这" * 200))
+            assert False
+        except fastapi.HTTPException as e:
+            assert e.status_code == 400
+            assert "上限" in e.detail
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
+def run():
+    import asyncio
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            asyncio.run(fn())
+    print("test_plugin: 全部通过")
+
+
+if __name__ == "__main__":
+    run()

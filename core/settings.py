@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Tuple
 
-from core.tts_client import FishConfig
+from .tts_client import FishConfig
 
 # 插件唯一 ID（与目录名、manifest.json 保持一致）
 PLUGIN_ID = "kira_plugin_fishaudio"

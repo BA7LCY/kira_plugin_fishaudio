@@ -25,10 +25,10 @@ from pydantic import BaseModel
 from core.plugin import BasePlugin, logger, register, PluginPage, PageMenu
 from core.chat.message_elements import Record, Text
 
-from core.emotion import EmotionRules, make_rules, normalize, strip_outside_code
-from core.settings import PLUGIN_ID, Settings
-from core.tts_client import FishError, FishTTS
-from core.voice_library import (
+from .core.emotion import EmotionRules, make_rules, normalize, strip_outside_code
+from .core.settings import Settings
+from .core.tts_client import FishError, FishTTS
+from .core.voice_library import (
     MAX_VOICES,
     VoiceLibrary,
     VoiceLibraryError,
@@ -151,22 +151,22 @@ class FishAudioPlugin(BasePlugin):
 
     def _speech_text(self, content: str, settings: Settings) -> str:
         """真正交给 TTS 的文本：情绪开启时保留方括号标记（S2 只控制语气、不会念出）。"""
-        if settings.emotion.enabled:
+        if settings.emotion_enabled:
             return normalize(content, self._emotion_rules(settings))
         return content
 
     def _plain_text(self, content: str, settings: Settings) -> str:
         """给用户看的文字版：情绪开启且选择剥离时去掉方括号标记。"""
-        if settings.emotion.enabled and settings.emotion.strip_in_text:
+        if settings.emotion_enabled and settings.strip_in_text:
             return strip_outside_code(content, self._emotion_rules(settings))
         return content
 
     def _emotion_rules(self, settings: Settings) -> EmotionRules:
         """按配置构造情绪规则。"""
         return make_rules(
-            mode=settings.emotion.tag_mode,
-            extra=settings.emotion.extra_tags,
-            max_tags=settings.emotion.max_tags,
+            mode=settings.tag_mode,
+            extra=settings.extra_tags,
+            max_tags=settings.max_tags,
         )
 
     def _resolve_reference_id(self, voice_attr: str, settings: Settings) -> str:
@@ -286,7 +286,7 @@ class FishAudioPlugin(BasePlugin):
     def _voices_payload(self) -> dict:
         """WebUI 用的音色库数据。"""
         voices = []
-        for idx, (name, voice) in enumerate(self.voice_lib.items(), start=1):
+        for idx, name, voice in self.voice_lib.items():
             voices.append({"idx": idx, "name": name, "id": voice.id, "note": voice.note})
         return {
             "voices": voices,
