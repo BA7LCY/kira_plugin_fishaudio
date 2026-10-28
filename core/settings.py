@@ -22,6 +22,7 @@ DEFAULTS = {
     "max_chars": 80,       # 转语音文字上限（字符）
     "timeout": 30.0,       # 单次请求超时（秒）
     "format": "mp3",
+    "disable_builtin_record": True,  # 屏蔽框架自带 <record> 语音标签，避免大模型选错
     # Fish 服务
     "api_key": "",
     "api_base": "https://api.fish.audio",
@@ -105,6 +106,7 @@ class Settings:
     max_chars: int = 80
     timeout: float = 30.0
     format: str = "mp3"
+    disable_builtin_record: bool = True
     # Fish 服务
     api_key: str = ""
     api_base: str = "https://api.fish.audio"
@@ -145,6 +147,9 @@ class Settings:
             max_chars=_as_int(basic.get("max_chars"), DEFAULTS["max_chars"], 1, 500),
             timeout=_as_float(basic.get("timeout"), DEFAULTS["timeout"], 1.0, 300.0),
             format=_as_choice(basic.get("format"), DEFAULTS["format"], _FORMATS),
+            disable_builtin_record=_as_bool(
+                basic.get("disable_builtin_record"), DEFAULTS["disable_builtin_record"]
+            ),
             api_key=_as_str(fish.get("api_key"), DEFAULTS["api_key"]),
             api_base=_as_str(fish.get("api_base"), DEFAULTS["api_base"]),
             model=_as_choice(fish.get("model"), DEFAULTS["model"], _MODELS),

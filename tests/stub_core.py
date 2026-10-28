@@ -56,12 +56,13 @@ def install() -> None:
             self.order = order
 
     class _Register:
-        """装饰器收集器：记录注册过的标签/API/页面。"""
+        """装饰器收集器：记录注册过的标签/API/页面/事件钩子。"""
 
         def __init__(self):
             self.tags = []
             self.apis = []
             self.pages = []
+            self.hooks = []
 
         def tag(self, name, description, parent="msg"):
             def deco(func):
@@ -88,10 +89,30 @@ def install() -> None:
 
             return deco
 
+    # on.llm_request(priority=...) 钩子装饰器（收集进 hooks，便于测试直接调用）
+    class _On:
+        def llm_request(self, priority=0):
+            def deco(func):
+                plugin.register.hooks.append(
+                    {"event": "llm_request", "priority": priority, "func": func}
+                )
+                return func
+
+            return deco
+
+    class _Priority:
+        SYS_LOW = -100
+        LOW = -50
+        MEDIUM = 0
+        HIGH = 50
+        SYS_HIGH = 100
+
     plugin.BasePlugin = BasePlugin
     plugin.PluginPage = PluginPage
     plugin.PageMenu = PageMenu
     plugin.register = _Register()
+    plugin.on = _On()
+    plugin.Priority = _Priority()
     core.plugin = plugin
 
     # ---- core.chat.message_elements ----

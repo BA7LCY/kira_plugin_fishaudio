@@ -28,6 +28,12 @@
         "default": "mp3",
         "options": ["mp3", "wav", "opus"],
         "hint": "合成出的音频格式。默认 mp3（体积小、兼容性好）；wav 音质无损但文件大；opus 更省流量。填别的值会自动用回 mp3。"
+      },
+      "disable_builtin_record": {
+        "type": "switch",
+        "name": "接管框架自带的语音标签",
+        "default": true,
+        "hint": "开启后，插件会屏蔽 Kira 框架自带的 <record> 语音标签，让大模型只用本插件的 <fish> 标签发语音，避免选错方案。关闭后两个语音标签同时可用。默认：开。"
       }
     }
   },

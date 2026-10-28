@@ -257,6 +257,62 @@ async def test_tts_test_api():
         tmpdir.rm_tmpdir(d)
 
 
+class FakeTagSet:
+    """记录 unregister 调用。"""
+
+    def __init__(self):
+        self.unregistered = []
+
+    def unregister(self, *names):
+        self.unregistered.extend(names)
+
+
+async def test_manage_builtin_tags_hook():
+    """接管钩子：启用+开开关+配了 Key 才屏蔽 <record>，其余情况不屏蔽。"""
+    import sys
+    pmod = sys.modules["core.plugin"]
+    hooks = [h for h in pmod.register.hooks if h["event"] == "llm_request"]
+    hook = None
+    for h in hooks:
+        if h["func"].__name__ == "manage_builtin_tags":
+            hook = h["func"]
+    assert hook is not None, "应该收集到 manage_builtin_tags 钩子"
+    # 优先级 MEDIUM(0)，低于内置 SYS_HIGH(100)，保证在内置注册之后执行
+    assert h["priority"] == 0
+
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        # 1) 默认：启用 + 开开关 + 有 Key → 屏蔽
+        plugin = _make_plugin(d, _base_cfg())
+        await _init(plugin, out_dir=d / "cache")
+        ts = FakeTagSet()
+        await hook(plugin, None, None, ts)
+        assert ts.unregistered == ["record"]
+
+        # 2) 开关关闭 → 不屏蔽
+        plugin2 = _make_plugin(d / "p2", _base_cfg(**{"basic": {"disable_builtin_record": False}}))
+        await _init(plugin2, out_dir=d / "cache2")
+        ts2 = FakeTagSet()
+        await hook(plugin2, None, None, ts2)
+        assert ts2.unregistered == []
+
+        # 3) 没配 Key → 不屏蔽（保留框架自带作兜底）
+        plugin3 = _make_plugin(d / "p3", _base_cfg(**{"fish": {"api_key": ""}}))
+        await _init(plugin3, out_dir=d / "cache3")
+        ts3 = FakeTagSet()
+        await hook(plugin3, None, None, ts3)
+        assert ts3.unregistered == []
+
+        # 4) 插件禁用 → 不屏蔽
+        plugin4 = _make_plugin(d / "p4", _base_cfg(**{"basic": {"enabled": False}}))
+        await _init(plugin4, out_dir=d / "cache4")
+        ts4 = FakeTagSet()
+        await hook(plugin4, None, None, ts4)
+        assert ts4.unregistered == []
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
 def run():
     import asyncio
     for name, fn in sorted(globals().items()):

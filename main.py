@@ -22,7 +22,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
-from core.plugin import BasePlugin, logger, register, PluginPage, PageMenu
+from core.plugin import BasePlugin, logger, on, Priority, register, PluginPage, PageMenu
 from core.chat.message_elements import Record, Text
 
 from .core.emotion import EmotionRules, make_rules, normalize, strip_outside_code
@@ -188,6 +188,27 @@ class FishAudioPlugin(BasePlugin):
             return self.voice_lib.active_id
         # 配置里的兜底音色
         return settings.reference_id
+
+    # ---------- 接管框架自带的 <record> 语音标签 ----------
+
+    @on.llm_request(priority=Priority.MEDIUM)
+    async def manage_builtin_tags(self, event, req, tag_set, *_):
+        """屏蔽框架自带的 <record> 标签，让大模型只用 <fish> 发语音。
+
+        框架在 SYS_HIGH 优先级（先执行）里按会话能力注册 <record>；
+        本钩子用 MEDIUM（后执行）把它从本次请求的标签集里移除，
+        这样 LLM 提示词里就只有 <fish>，不会在两条语音方案里选错。
+        只有插件启用、配了 API Key 且开关打开时才接管；
+        没配 Key 时保留框架自带的，作为兜底。
+        """
+        settings = self._settings()
+        if (
+            settings.enabled
+            and settings.disable_builtin_record
+            and settings.api_key
+        ):
+            tag_set.unregister("record")
+            logger.debug("已屏蔽框架自带 <record> 标签，本次请求只用 <fish> 发语音")
 
     # ---------- 配置 ----------
 
