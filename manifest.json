@@ -4,6 +4,7 @@
   "version": "1.0.1",
   "author": "kira-plugin-dev",
   "description": "让大模型用 <fish> 标签把回复转成 Fish Audio 高质量语音（支持情绪语气、音色库管理与试听）。",
+  "icon": "icon.png",
   "core_version": ">=3.0.2",
   "tags": ["tts", "voice", "fish-audio", "tools"],
   "locales": {
