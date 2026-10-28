@@ -16,6 +16,7 @@ MODULES = [
     "test_core_emotion",
     "test_core_voice_library",
     "test_core_settings",
+    "test_core_platform",
     "test_core_tts_client",
     "test_plugin",
 ]

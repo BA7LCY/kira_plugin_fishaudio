@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Tuple
 
+from .platform import split_platforms
 from .tts_client import FishConfig
 
 # 插件唯一 ID（与目录名、manifest.json 保持一致）
@@ -23,6 +24,7 @@ DEFAULTS = {
     "timeout": 30.0,       # 单次请求超时（秒）
     "format": "mp3",
     "disable_builtin_record": True,  # 屏蔽框架自带 <record> 语音标签，避免大模型选错
+    "text_only_platforms": "",       # 额外按"发不了语音"处理的平台（逗号分隔，可留空）
     # Fish 服务
     "api_key": "",
     "api_base": "https://api.fish.audio",
@@ -107,6 +109,7 @@ class Settings:
     timeout: float = 30.0
     format: str = "mp3"
     disable_builtin_record: bool = True
+    text_only_platforms: Tuple[str, ...] = ()
     # Fish 服务
     api_key: str = ""
     api_base: str = "https://api.fish.audio"
@@ -149,6 +152,9 @@ class Settings:
             format=_as_choice(basic.get("format"), DEFAULTS["format"], _FORMATS),
             disable_builtin_record=_as_bool(
                 basic.get("disable_builtin_record"), DEFAULTS["disable_builtin_record"]
+            ),
+            text_only_platforms=split_platforms(
+                _as_str(basic.get("text_only_platforms"), DEFAULTS["text_only_platforms"])
             ),
             api_key=_as_str(fish.get("api_key"), DEFAULTS["api_key"]),
             api_base=_as_str(fish.get("api_base"), DEFAULTS["api_base"]),

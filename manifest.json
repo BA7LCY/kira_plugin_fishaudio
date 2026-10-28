@@ -1,7 +1,7 @@
 {
   "plugin_id": "kira_plugin_fishaudio",
   "display_name": "Fish Audio 语音",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "kira-plugin-dev",
   "description": "让大模型用 <fish> 标签把回复转成 Fish Audio 高质量语音（支持情绪语气、音色库管理与试听）。",
   "core_version": ">=3.0.2",

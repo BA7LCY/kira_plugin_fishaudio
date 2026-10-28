@@ -153,23 +153,35 @@ async function setDefault(name) {
   }
 }
 
-// 删除需要等 3 秒确认，防止误删
+// 删除需要再点一次确认，3 秒内没点第二次就恢复，防止误删。
+// 注意：这里不能给按钮加 disabled——禁用后的按钮收不到点击，
+// 用户就永远点不到第二次了（这是上一版删不掉音色的原因）。
 function removeWithConfirm(name) {
   const row = document.querySelector(`tr[data-voice="${CSS.escape(name)}"]`);
   const btn = row ? row.querySelector(".btn-danger") : null;
-  if (btn && btn.dataset.confirming !== "1") {
-    btn.dataset.confirming = "1";
-    const original = btn.textContent;
-    btn.textContent = "再点一次确认删除";
-    btn.disabled = true;
-    setTimeout(() => {
-      btn.textContent = original;
-      btn.disabled = false;
-      delete btn.dataset.confirming;
-    }, 3000);
+  if (!btn) {
+    doRemove(name);
     return;
   }
-  doRemove(name);
+  if (btn.dataset.confirming === "1") {
+    // 第二次点击：清理倒计时并真正删除
+    clearTimeout(Number(btn.dataset.timer) || 0);
+    btn.textContent = "删除";
+    delete btn.dataset.confirming;
+    delete btn.dataset.timer;
+    doRemove(name);
+    return;
+  }
+  btn.dataset.confirming = "1";
+  btn.textContent = "再点一次确认删除";
+  btn.classList.add("btn-confirming");
+  const timer = window.setTimeout(() => {
+    btn.textContent = "删除";
+    btn.classList.remove("btn-confirming");
+    delete btn.dataset.confirming;
+    delete btn.dataset.timer;
+  }, 3000);
+  btn.dataset.timer = String(timer);
 }
 
 async function doRemove(name) {

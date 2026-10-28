@@ -87,6 +87,9 @@ td.id-cell { font-family: ui-monospace, Consolas, monospace; font-size: 12px; wo
 .btn-primary:hover { opacity: 0.9; }
 .btn-danger { color: var(--danger); border-color: #f3c0c2; }
 .btn-danger:hover { background: #fef1f1; }
+/* 等待第二次确认时的醒目提示（只做视觉变化，不禁用按钮） */
+.btn-confirming { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn-confirming:hover { background: var(--danger); opacity: 0.92; }
 .btn-ghost { background: transparent; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 

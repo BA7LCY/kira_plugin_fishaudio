@@ -24,8 +24,10 @@ from pydantic import BaseModel
 
 from core.plugin import BasePlugin, logger, on, Priority, register, PluginPage, PageMenu
 from core.chat.message_elements import Record, Text
+from core.tag import BaseTag
 
 from .core.emotion import EmotionRules, make_rules, normalize, strip_outside_code
+from .core.platform import PlatformInfo, supports_voice
 from .core.settings import Settings
 from .core.tts_client import FishError, FishTTS
 from .core.voice_library import (
@@ -39,6 +41,40 @@ from .core.voice_library import (
 
 # 试听默认文案（用户可改）
 TEST_TEXT_DEFAULT = "你好，这是一条试听语音。"
+
+# <fish> 标签的两种说明：平台能发语音时教它发语音，发不了就让它当普通文字
+VOICE_TAG_DESCRIPTION = (
+    "<fish>要转成语音的文字</fish>  # 用插件预设的默认音色把文字转成语音发出去。"
+    "文字里可以带方括号情绪标记（例如 [happy]、[whispering]、[laughing]），"
+    "这些标记只影响语气、不会被念出来。"
+    "也可以临时指定音色：<fish voice=\"音色ID\">文字</fish>。"
+    "不要和其他 msg 内标签混用。"
+)
+TEXT_TAG_DESCRIPTION = (
+    "<fish>要发给用户的文字</fish>  # 当前聊天平台发不了语音，"
+    "标签里的内容会按普通文字发出去，不影响聊天内容。"
+)
+
+
+class FishTag(BaseTag):
+    """<fish> 标签的运行时实例。
+
+    每次请求在 on.llm_request 钩子里按"这个平台能不能发语音"新建一个实例，
+    并注册进本次请求的标签集，所以不同平台/会话互不影响。
+    """
+
+    name = "fish"
+    parent = "msg"
+
+    def __init__(self, plugin: "FishAudioPlugin", *, allow_voice: bool):
+        super().__init__(ctx=getattr(plugin, "ctx", None))
+        self._plugin = plugin
+        self._allow_voice = bool(allow_voice)
+        self.description = VOICE_TAG_DESCRIPTION if self._allow_voice else TEXT_TAG_DESCRIPTION
+
+    async def handle(self, value: str, **kwargs) -> list:
+        """把 <fish> 的内容交给插件：能发语音就合成语音，否则发文字。"""
+        return await self._plugin.fish(value, allow_voice=self._allow_voice, **kwargs)
 
 # 一次只允许一个试听请求：Fish 免费额度有限，避免并发把额度打光
 _test_lock = asyncio.Lock()
@@ -108,22 +144,14 @@ class FishAudioPlugin(BasePlugin):
 
     # ---------- <fish> 标签 ----------
 
-    @register.tag(
-        name="fish",
-        description=(
-            "<fish>要转成语音的文字</fish>  # 用插件预设的默认音色把文字转成语音发出去。"
-            "文字里可以带方括号情绪标记（例如 [happy]、[whispering]、[laughing]），"
-            "这些标记只影响语气、不会被念出来。"
-            "也可以临时指定音色：<fish voice=\"音色ID\">文字</fish>。"
-            "不要和其他 msg 内标签混用。"
-        ),
-        parent="msg",
-    )
-    async def fish(self, content: str, **attrs) -> list:
-        """把标签内容合成语音；任何异常都降级为普通文字，不打扰用户。"""
+    async def fish(self, content: str, allow_voice: bool = True, **attrs) -> list:
+        """把标签内容合成语音；不能发语音或任何异常都降级为普通文字，不打扰用户。
+
+        allow_voice 由 FishTag 按本次请求的平台能力传入（见 manage_builtin_tags）。
+        """
         settings = self._settings()
-        if not settings.enabled:
-            return [Text(content)]
+        if not settings.enabled or not allow_voice:
+            return [Text(self._plain_text(content, settings))]
         try:
             voice_attr = attrs.get("voice") or ""
             return await self._speak(content, settings, voice_attr)
@@ -193,13 +221,14 @@ class FishAudioPlugin(BasePlugin):
 
     @on.llm_request(priority=Priority.MEDIUM)
     async def manage_builtin_tags(self, event, req, tag_set, *_):
-        """屏蔽框架自带的 <record> 标签，让大模型只用 <fish> 发语音。
+        """准备本次请求的语音标签。
 
-        框架在 SYS_HIGH 优先级（先执行）里按会话能力注册 <record>；
-        本钩子用 MEDIUM（后执行）把它从本次请求的标签集里移除，
-        这样 LLM 提示词里就只有 <fish>，不会在两条语音方案里选错。
-        只有插件启用、配了 API Key 且开关打开时才接管；
-        没配 Key 时保留框架自带的，作为兜底。
+        做两件事：
+        1. 屏蔽框架自带的 <record> 标签：框架在 SYS_HIGH（先执行）里按会话能力
+           注册它，本钩子用 MEDIUM（后执行）把它移除，避免大模型在两条语音方案里选错。
+           只有插件启用、配了 API Key 且开关打开时才接管，没配 Key 时保留框架自带的兜底。
+        2. 按当前平台能力注册 <fish> 标签：能发语音就合成语音，发不了就发文字
+           （例如 QQ 官方机器人适配器会把 record 变成一句 "[Unsupported message element]"）。
         """
         settings = self._settings()
         if (
@@ -209,6 +238,46 @@ class FishAudioPlugin(BasePlugin):
         ):
             tag_set.unregister("record")
             logger.debug("已屏蔽框架自带 <record> 标签，本次请求只用 <fish> 发语音")
+
+        allow_voice = settings.enabled and self._platform_supports_voice(event, settings)
+        tag_set.register(FishTag(self, allow_voice=allow_voice))
+
+    def _platform_info(self, event) -> PlatformInfo:
+        """从事件里收集平台信息（平台名、适配器名、适配器实现模块）。"""
+        info = getattr(event, "adapter", None)
+        platform = str(getattr(info, "platform", "") or "")
+        adapter_name = str(getattr(info, "name", "") or "")
+        adapter_id = str(getattr(info, "adapter_id", "") or "")
+
+        module = ""
+        manager = getattr(self.ctx, "adapter_mgr", None)
+        if manager is not None and adapter_name:
+            try:
+                adapter = manager.get_adapter(adapter_name)
+                if adapter is not None:
+                    module = type(adapter).__module__ or ""
+            except Exception:  # 适配器管理器接口变动时不影响聊天
+                module = ""
+
+        elements = getattr(event, "supported_elements", None) or ()
+        return PlatformInfo(
+            platform=platform,
+            adapter_name=adapter_name,
+            adapter_id=adapter_id,
+            adapter_module=module,
+            supported_elements=tuple(str(item) for item in elements),
+        )
+
+    def _platform_supports_voice(self, event, settings: Settings) -> bool:
+        """当前平台能不能真的发语音（不能则 <fish> 降级成文字）。"""
+        info = self._platform_info(event)
+        ok = supports_voice(info, settings.text_only_platforms)
+        if not ok:
+            logger.debug(
+                "当前平台发不了语音（platform=%s），<fish> 改为发文字",
+                info.platform or "未知",
+            )
+        return ok
 
     # ---------- 配置 ----------
 

@@ -4,6 +4,7 @@
 只实现本插件用到的最小接口：
 - core.plugin：BasePlugin（假构造）、logger、register（收集器）、PluginPage、PageMenu
 - core.chat.message_elements：Text、Record
+- core.tag：BaseTag（<fish> 动态标签的基类）
 - fastapi：HTTPException（本插件只在 _http_error 里延迟导入）
 """
 
@@ -140,6 +141,27 @@ def install() -> None:
     me.Record = Record
     chat.message_elements = me
     core.chat = chat
+
+    # ---- core.tag ----
+    tag = _make_module("core.tag", path=True)
+
+    class BaseTag:
+        """标签基类桩：与框架一致，保存 ctx，name/description/parent 是类属性。"""
+
+        def __init__(self, ctx=None, **kwargs):
+            self.ctx = ctx
+            self.kwargs = kwargs
+
+        name = None
+        description = None
+        parent = "msg"
+
+        async def handle(self, value, **kwargs):
+            raise NotImplementedError
+
+    tag.BaseTag = BaseTag
+    tag.RootTagAction = type("RootTagAction", (), {})
+    core.tag = tag
 
 
 def install_fastapi() -> None:

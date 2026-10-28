@@ -258,13 +258,35 @@ async def test_tts_test_api():
 
 
 class FakeTagSet:
-    """记录 unregister 调用。"""
+    """记录 unregister / register 调用（register 只收实例）。"""
 
     def __init__(self):
         self.unregistered = []
+        self.registered = []
 
     def unregister(self, *names):
         self.unregistered.extend(names)
+
+    def register(self, *tags):
+        self.registered.extend(tags)
+
+    def fish_tag(self):
+        for tag in self.registered:
+            if getattr(tag, "name", "") == "fish":
+                return tag
+        return None
+
+
+class FakeEvent:
+    """只带平台信息的事件桩。"""
+
+    def __init__(self, supported_elements=("record",), platform="Telegram", name="tg", adapter_id="tg"):
+        self.supported_elements = list(supported_elements)
+        self.adapter = type(
+            "FakeAdapterInfo",
+            (),
+            {"platform": platform, "name": name, "adapter_id": adapter_id},
+        )()
 
 
 async def test_manage_builtin_tags_hook():
@@ -309,6 +331,82 @@ async def test_manage_builtin_tags_hook():
         ts4 = FakeTagSet()
         await hook(plugin4, None, None, ts4)
         assert ts4.unregistered == []
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
+async def test_hook_registers_fish_tag_by_platform():
+    """钩子按平台能力注册 <fish>：能发语音→语音说明，发不了→文字说明。"""
+    import sys
+    pmod = sys.modules["core.plugin"]
+    hook = next(
+        h["func"] for h in pmod.register.hooks
+        if h["event"] == "llm_request" and h["func"].__name__ == "manage_builtin_tags"
+    )
+
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        # 1) 普通平台（Telegram，支持 record）→ 注册语音版标签
+        plugin = _make_plugin(d, _base_cfg())
+        await _init(plugin, out_dir=d / "cache")
+        ts = FakeTagSet()
+        await hook(plugin, FakeEvent(platform="Telegram"), None, ts)
+        tag = ts.fish_tag()
+        assert tag is not None, "应该注册 <fish> 标签"
+        assert tag._allow_voice is True
+        assert "转成语音" in tag.description
+        # handle 真的会合成语音
+        res = await tag.handle("你好")
+        assert res[0].__class__.__name__ == "Record"
+
+        # 2) QQ 官方机器人（自称支持 record，实际发不出去）→ 文字版标签
+        plugin2 = _make_plugin(d / "p2", _base_cfg())
+        await _init(plugin2, out_dir=d / "cache2")
+        ts2 = FakeTagSet()
+        await hook(plugin2, FakeEvent(platform="QQ Official", name="QQ官鸡"), None, ts2)
+        tag2 = ts2.fish_tag()
+        assert tag2 is not None
+        assert tag2._allow_voice is False
+        assert "发不了语音" in tag2.description
+        res2 = await tag2.handle("[happy]你好")
+        assert res2[0].__class__.__name__ == "Text"
+        assert plugin2.tts.calls == []  # 不合成，也不浪费额度
+
+        # 3) supported_elements 没有 record → 文字版
+        plugin3 = _make_plugin(d / "p3", _base_cfg())
+        await _init(plugin3, out_dir=d / "cache3")
+        ts3 = FakeTagSet()
+        await hook(plugin3, FakeEvent(supported_elements=("text",), platform="Webchat"), None, ts3)
+        assert ts3.fish_tag()._allow_voice is False
+
+        # 4) 用户自己在配置里追加"发不了语音"的平台 → 文字版
+        plugin4 = _make_plugin(
+            d / "p4", _base_cfg(**{"basic": {"text_only_platforms": "discord"}})
+        )
+        await _init(plugin4, out_dir=d / "cache4")
+        ts4 = FakeTagSet()
+        await hook(plugin4, FakeEvent(platform="Discord"), None, ts4)
+        assert ts4.fish_tag()._allow_voice is False
+
+        # 5) 插件禁用 → 仍然注册（避免 <fish> 被静默吞掉），但只发文字
+        plugin5 = _make_plugin(d / "p5", _base_cfg(**{"basic": {"enabled": False}}))
+        await _init(plugin5, out_dir=d / "cache5")
+        ts5 = FakeTagSet()
+        await hook(plugin5, FakeEvent(platform="Telegram"), None, ts5)
+        assert ts5.fish_tag()._allow_voice is False
+    finally:
+        tmpdir.rm_tmpdir(d)
+
+
+async def test_fish_allow_voice_false_returns_text():
+    """直接调用 fish(allow_voice=False) 时只发文字、不合成。"""
+    d = tmpdir.make_tmpdir("pl")
+    try:
+        plugin = _make_plugin(d, _base_cfg())
+        await _init(plugin, out_dir=d / "cache")
+        res = await plugin.fish("[happy]你好", allow_voice=False)
+        assert res[0].__class__.__name__ == "Text"
+        assert plugin.tts.calls == []
     finally:
         tmpdir.rm_tmpdir(d)
 
