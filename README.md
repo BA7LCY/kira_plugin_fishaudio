@@ -2,10 +2,6 @@
 
 让大模型把回复转成 **Fish Audio 高质量语音** 的 KiraAI 插件：模型在回复里写一个 `<fish>` 标签，插件就会用你选好的音色把里面的文字念出来发到群里/私聊，还支持在文字里加情绪标记控制语气。
 
-仅供参考：[Fish Audio 官方文档](https://docs.fish.audio/developer-guide/core-features/emotions)。
->
-> 许可证：[MIT](LICENSE)，作者 BA7LCY。
-
 ---
 
 ## 它怎么工作
