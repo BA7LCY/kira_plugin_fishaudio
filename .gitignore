@@ -12,3 +12,6 @@ __pycache__/
 
 # 运行时
 .tts_cache/
+
+# 测试临时目录
+_tmp_tt/
