@@ -411,8 +411,8 @@ async def test_fish_allow_voice_false_returns_text():
         tmpdir.rm_tmpdir(d)
 
 
-async def test_log_tag_mode_only_on_change():
-    """语音标签模式日志只在变化时打一遍，避免每轮对话刷屏。"""
+async def test_startup_log_once_and_no_runtime_mode_log():
+    """标签模式只在插件启动时说明一次，聊天过程中不再打印。"""
     import logging
     import sys
 
@@ -437,25 +437,18 @@ async def test_log_tag_mode_only_on_change():
     try:
         plugin = _make_plugin(d, _base_cfg())
         await _init(plugin, out_dir=d / "cache")
-        qq = FakeEvent(platform="QQ Official", name="QQ官鸡")
+        startup = [m for m in collected if m.startswith("FishAudio 插件已启动")]
+        assert len(startup) == 1, collected
+        assert "已启用" in startup[0]
+        assert "API Key 已配置" in startup[0]
+        assert "已屏蔽" in startup[0]
 
-        await hook(plugin, qq, None, FakeTagSet())
-        mode_logs = [m for m in collected if m.startswith("语音标签模式")]
-        assert len(mode_logs) == 1, mode_logs
-        assert "发文字" in mode_logs[0]
-        assert "QQ Official" in mode_logs[0]
-        assert "已屏蔽" in mode_logs[0]
-
-        # 同一平台再问一次 → 不重复打印
-        await hook(plugin, qq, None, FakeTagSet())
-        mode_logs = [m for m in collected if m.startswith("语音标签模式")]
-        assert len(mode_logs) == 1, mode_logs
-
-        # 换到能发语音的平台 → 打一次新状态
-        await hook(plugin, FakeEvent(platform="Telegram"), None, FakeTagSet())
-        mode_logs = [m for m in collected if m.startswith("语音标签模式")]
-        assert len(mode_logs) == 2, mode_logs
-        assert "发语音" in mode_logs[1]
+        # 连跑几轮请求：运行期间不应再冒出任何模式日志
+        before = len(collected)
+        for _ in range(3):
+            await hook(plugin, FakeEvent(platform="QQ Official", name="QQ官鸡"), None, FakeTagSet())
+            await hook(plugin, FakeEvent(platform="Telegram"), None, FakeTagSet())
+        assert collected[before:] == [], collected[before:]
     finally:
         target.removeHandler(handler)
         tmpdir.rm_tmpdir(d)

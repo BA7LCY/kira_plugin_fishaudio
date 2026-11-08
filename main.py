@@ -123,8 +123,6 @@ class FishAudioPlugin(BasePlugin):
         # 依赖：initialize 时创建，测试里可以整体替换
         self.voice_lib: Optional[VoiceLibrary] = None
         self.tts: Optional[FishTTS] = None
-        # 上一次的语音标签模式，用来避免每轮对话都重复打印同一行日志
-        self._tag_state: Optional[tuple] = None
 
     # ---------- 生命周期 ----------
 
@@ -134,7 +132,14 @@ class FishAudioPlugin(BasePlugin):
         self.voice_lib = VoiceLibrary(self.library_path)
         self.voice_lib.load()
         self.tts = FishTTS(self.cache_dir)
-        logger.info("FishAudio 插件初始化完成，音色库 %d 个音色", len(self.voice_lib))
+        settings = self._settings()
+        logger.info(
+            "FishAudio 插件已启动：%s，%s，音色库 %d 个音色，框架自带 <record> %s",
+            "已启用" if settings.enabled else "已停用",
+            "API Key 已配置" if settings.api_key else "还没填 API Key",
+            len(self.voice_lib),
+            "已屏蔽" if self._blocks_builtin_record(settings) else "保留",
+        )
 
     async def terminate(self) -> None:
         """卸载时保存音色库（幂等，可重复调用）。"""
@@ -233,15 +238,16 @@ class FishAudioPlugin(BasePlugin):
            （例如 QQ 官方机器人适配器会把 record 变成一句 "[Unsupported message element]"）。
         """
         settings = self._settings()
-        blocked_record = bool(
-            settings.enabled and settings.disable_builtin_record and settings.api_key
-        )
-        if blocked_record:
+        if self._blocks_builtin_record(settings):
             tag_set.unregister("record")
 
         allow_voice = settings.enabled and self._platform_supports_voice(event, settings)
         tag_set.register(FishTag(self, allow_voice=allow_voice))
-        self._log_tag_mode(settings, allow_voice, blocked_record, event)
+
+    @staticmethod
+    def _blocks_builtin_record(settings: Settings) -> bool:
+        """是否接管框架自带的 <record> 标签：插件启用 + 开了屏蔽 + 配了 Key。"""
+        return bool(settings.enabled and settings.disable_builtin_record and settings.api_key)
 
     def _platform_info(self, event) -> PlatformInfo:
         """从事件里收集平台信息（平台名、适配器名、适配器实现模块）。"""
@@ -273,35 +279,6 @@ class FishAudioPlugin(BasePlugin):
         """当前平台能不能真的发语音（不能则 <fish> 降级成文字）。"""
         info = self._platform_info(event)
         return supports_voice(info, settings.text_only_platforms)
-
-    def _log_tag_mode(
-        self, settings: Settings, allow_voice: bool, blocked_record: bool, event=None
-    ) -> None:
-        """只在语音标签模式变化时打一行日志，同一模式下每轮对话不重复刷屏。
-
-        模式由「插件开关、有没有 Key、能不能发语音、平台、框架 record 是否屏蔽」决定；
-        任何一项变了（比如换了平台、改了配置）才会再打一次。
-        """
-        platform = ""
-        if event is not None:
-            platform = self._platform_info(event).platform
-        state = (settings.enabled, bool(settings.api_key), allow_voice, platform, blocked_record)
-        if state == self._tag_state:
-            return
-        self._tag_state = state
-
-        parts = []
-        if not settings.enabled:
-            parts.append("插件已关闭")
-        if not settings.api_key:
-            parts.append("还没填 API Key")
-        if allow_voice:
-            parts.append("<fish> 发语音")
-        else:
-            where = f"（平台：{platform}）" if platform else ""
-            parts.append(f"<fish> 发文字{where}")
-        parts.append("框架自带 <record> 已屏蔽" if blocked_record else "框架自带 <record> 保留")
-        logger.debug("语音标签模式：%s", "；".join(parts))
 
     # ---------- 配置 ----------
 
